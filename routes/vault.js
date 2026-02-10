@@ -41,6 +41,45 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
+
+
+// ... (Upar ka code waisa hi rahega) ...
+
+// 👇 DELETE FILE ROUTE (Ise POST route ke neeche add karein)
+router.post('/delete-file', protect, async (req, res) => {
+  try {
+    const { fileId } = req.body; // e.g., 'doc-photo'
+
+    // Map: Frontend ID -> Database Column Name
+    const map = {
+      'doc-photo': 'photoUrl',
+      'doc-aadhar': 'aadharCardUrl',
+      'doc-pan': 'panCardUrl',
+      'doc-10th': 'tenthMarkUrl',
+      'doc-12th': 'twelfthMarkUrl',
+      'doc-caste': 'casteCertUrl',
+      'doc-income': 'incomeCertUrl',
+      'doc-sign': 'signUrl'
+    };
+
+    const dbField = map[fileId];
+    if (!dbField) return res.status(400).json({ msg: 'Invalid File ID' });
+
+    // Update Database: Set that specific field to empty string ""
+    await Vault.findOneAndUpdate(
+      { user: req.user.id },
+      { $set: { [dbField]: "" } } // Ye us column ko khali kar dega
+    );
+
+    res.json({ msg: 'Deleted Successfully' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server Error');
+  }
+});
+
+
 // --- 3. POST ROUTE (Upload & Save) ---
 // 'upload.fields' batata hai ki kaunsi file kahan jayegi
 const uploadFields = upload.fields([
