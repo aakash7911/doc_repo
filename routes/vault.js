@@ -1,85 +1,94 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
 const Vault = require('../models/Vault');
+const { protect } = require('../middleware/auth');
+
+// --- 1. CLOUDINARY & MULTER SETUP ---
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
 
-// 1. Cloudinary Setup (Free Storage)
+// Cloudinary Config (Environment Variables se lega)
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// 2. Storage Engine
+// Storage Engine
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'zobbly_docs', // Cloudinary me is naam ka folder banega
-    allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
+    folder: 'zobbly_docs', // Cloudinary me folder ka naam
+    allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'], // PDF bhi allow kiya
+    resource_type: 'auto' // PDF aur Image dono chalega
   },
 });
+
 const upload = multer({ storage: storage });
 
-// Fields Config (Kaunsi file kahan jayegi)
-const vaultUploads = upload.fields([
+// --- 2. GET ROUTE (Data dekhne ke liye) ---
+router.get('/', protect, async (req, res) => {
+  try {
+    let vault = await Vault.findOne({ user: req.user.id });
+    if (!vault) {
+      return res.status(200).json({ msg: 'No data found', details: {} });
+    }
+    res.json({ details: vault });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// --- 3. POST ROUTE (Upload & Save) ---
+// 'upload.fields' batata hai ki kaunsi file kahan jayegi
+const uploadFields = upload.fields([
+  { name: 'doc-photo', maxCount: 1 },
   { name: 'doc-aadhar', maxCount: 1 },
   { name: 'doc-pan', maxCount: 1 },
   { name: 'doc-10th', maxCount: 1 },
   { name: 'doc-12th', maxCount: 1 },
-  { name: 'doc-photo', maxCount: 1 },
+  { name: 'doc-caste', maxCount: 1 },
+  { name: 'doc-income', maxCount: 1 },
+  { name: 'doc-residence', maxCount: 1 },
   { name: 'doc-sign', maxCount: 1 }
 ]);
 
-// --- API ROUTES ---
-
-// GET: User ka saved data laane ke liye
-router.get('/', async (req, res) => {
+router.post('/', protect, uploadFields, async (req, res) => {
   try {
-    // Note: req.user._id tabhi milega jab aapne Auth middleware lagaya ho
-    const vault = await Vault.findOne({ userId: req.user._id });
-    if (!vault) return res.status(200).json({ details: {}, documents: {} });
-    res.json(vault);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server Error' });
-  }
-});
-
-// POST: Data aur Files save karne ke liye
-router.post('/', vaultUploads, async (req, res) => {
-  try {
+    // 1. Text Data nikalo
     let details = {};
     if (req.body.details) {
       details = JSON.parse(req.body.details);
     }
 
-    let vault = await Vault.findOne({ userId: req.user._id });
-    if (!vault) {
-      vault = new Vault({ userId: req.user._id });
-    }
+    // 2. Files ke Links nikalo (Agar upload hui hain to)
+    const files = req.files || {};
 
-    // Text Data Update
-    vault.details = { ...vault.details, ...details };
+    if (files['doc-photo']) details.photoUrl = files['doc-photo'][0].path;
+    if (files['doc-aadhar']) details.aadharCardUrl = files['doc-aadhar'][0].path;
+    if (files['doc-pan']) details.panCardUrl = files['doc-pan'][0].path;
+    if (files['doc-10th']) details.tenthMarkUrl = files['doc-10th'][0].path;
+    if (files['doc-12th']) details.twelfthMarkUrl = files['doc-12th'][0].path;
+    if (files['doc-caste']) details.casteCertUrl = files['doc-caste'][0].path;
+    if (files['doc-income']) details.incomeCertUrl = files['doc-income'][0].path;
+    if (files['doc-residence']) details.residenceCertUrl = files['doc-residence'][0].path;
+    if (files['doc-sign']) details.signUrl = files['doc-sign'][0].path;
 
-    // Files Update (Agar nayi upload hui hai to hi change karo)
-    if (req.files) {
-      if (req.files['doc-aadhar']) vault.documents.aadharCard = req.files['doc-aadhar'][0].path;
-      if (req.files['doc-pan']) vault.documents.panCard = req.files['doc-pan'][0].path;
-      if (req.files['doc-10th']) vault.documents.markSheet10 = req.files['doc-10th'][0].path;
-      if (req.files['doc-12th']) vault.documents.markSheet12 = req.files['doc-12th'][0].path;
-      if (req.files['doc-photo']) vault.documents.photo = req.files['doc-photo'][0].path;
-      if (req.files['doc-sign']) vault.documents.signature = req.files['doc-sign'][0].path;
-    }
+    // 3. Database me Save/Update karo
+    // upsert: true ka matlab, agar data nahi hai to naya banao, hai to update karo
+    const vault = await Vault.findOneAndUpdate(
+      { user: req.user.id },
+      { $set: details },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
-    await vault.save();
-    res.json({ msg: 'Saved Successfully', vault });
+    res.json({ msg: 'Saved Successfully', details: vault });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: 'Server Error' });
+    res.status(500).json({ msg: 'Server Error: ' + err.message });
   }
 });
 
