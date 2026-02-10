@@ -1,31 +1,34 @@
 const mongoose = require('mongoose');
 
-const vaultSchema = new mongoose.Schema({
-  userId: {
+const VaultSchema = new mongoose.Schema({
+  user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    unique: true
+    required: true
   },
-  details: {
-    fullName: { type: String, default: '' },
-    fatherName: { type: String, default: '' },
-    dob: { type: String, default: '' },
-    gender: { type: String, default: '' },
-    email: { type: String, default: '' },
-    mobile: { type: String, default: '' },
-    address: { type: String, default: '' },
-    aadharNo: { type: String, default: '' },
-    panNo: { type: String, default: '' }
-  },
-  documents: {
-    aadharCard: { type: String, default: '' },
-    panCard: { type: String, default: '' },
-    markSheet10: { type: String, default: '' },
-    markSheet12: { type: String, default: '' },
-    photo: { type: String, default: '' },
-    signature: { type: String, default: '' }
-  }
+  // --- Personal Details ---
+  fullName: { type: String, default: '' },
+  fatherName: { type: String, default: '' },
+  dob: { type: String, default: '' },
+  gender: { type: String, default: '' },
+  bodyMark: { type: String, default: '' }, // Naya Field
+  email: { type: String, default: '' },
+  mobile: { type: String, default: '' },
+  address: { type: String, default: '' },
+  aadharNo: { type: String, default: '' },
+  panNo: { type: String, default: '' },
+
+  // --- Document Links (Cloudinary URLs) ---
+  photoUrl: { type: String, default: '' },       // Photo
+  aadharCardUrl: { type: String, default: '' },  // Aadhar File
+  panCardUrl: { type: String, default: '' },     // PAN File
+  tenthMarkUrl: { type: String, default: '' },   // 10th
+  twelfthMarkUrl: { type: String, default: '' }, // 12th
+  casteCertUrl: { type: String, default: '' },   // Jati
+  incomeCertUrl: { type: String, default: '' },  // Aay (Income)
+  residenceCertUrl: { type: String, default: '' }, // Niwas
+  signUrl: { type: String, default: '' }         // Signature
+
 }, { timestamps: true });
 
-module.exports = mongoose.model('Vault', vaultSchema);
+module.exports = mongoose.model('Vault', VaultSchema);
