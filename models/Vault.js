@@ -10,6 +10,7 @@ const VaultSchema = new mongoose.Schema({
   fullName: { type: String, default: '' },
   fatherName: { type: String, default: '' },
   dob: { type: String, default: '' },
+  nationality: { type: String, default: 'Indian' },
   gender: { type: String, default: '' },
   bodyMark: { type: String, default: '' }, // Naya Field
   email: { type: String, default: '' },
