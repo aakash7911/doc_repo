@@ -1,133 +1,103 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Vault = require('../models/Vault');
-const { protect } = require('../middleware/auth');
-
-// --- 1. CLOUDINARY & MULTER SETUP ---
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
 
-// Cloudinary Config (Environment Variables se lega)
+// 1. Cloudinary Setup
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Storage Engine
+// 2. Storage Engine (Resize ke sath)
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'zobbly_docs', // Cloudinary me folder ka naam
-    allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'], // PDF bhi allow kiya
-    resource_type: 'auto' // PDF aur Image dono chalega
+    folder: 'zobbly_docs',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
+    transformation: [{ width: 1000, crop: "limit" }] // Image resize taaki fast ho
   },
 });
-
 const upload = multer({ storage: storage });
 
-// --- 2. GET ROUTE (Data dekhne ke liye) ---
-router.get('/', protect, async (req, res) => {
-  try {
-    let vault = await Vault.findOne({ user: req.user.id });
-    if (!vault) {
-      return res.status(200).json({ msg: 'No data found', details: {} });
-    }
-    res.json({ details: vault });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
-  }
-});
-
-
-
-// ... (Upar ka code waisa hi rahega) ...
-
-// 👇 DELETE FILE ROUTE (Ise POST route ke neeche add karein)
-router.post('/delete-file', protect, async (req, res) => {
-  try {
-    const { fileId } = req.body; // e.g., 'doc-photo'
-
-    // Map: Frontend ID -> Database Column Name
-    const map = {
-      'doc-photo': 'photoUrl',
-      'doc-aadhar': 'aadharCardUrl',
-      'doc-pan': 'panCardUrl',
-      'doc-10th': 'tenthMarkUrl',
-      'doc-12th': 'twelfthMarkUrl',
-      'doc-caste': 'casteCertUrl',
-      'doc-income': 'incomeCertUrl',
-      'doc-sign': 'signUrl'
-    };
-
-    const dbField = map[fileId];
-    if (!dbField) return res.status(400).json({ msg: 'Invalid File ID' });
-
-    // Update Database: Set that specific field to empty string ""
-    await Vault.findOneAndUpdate(
-      { user: req.user.id },
-      { $set: { [dbField]: "" } } // Ye us column ko khali kar dega
-    );
-
-    res.json({ msg: 'Deleted Successfully' });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server Error');
-  }
-});
-
-
-// --- 3. POST ROUTE (Upload & Save) ---
-// 'upload.fields' batata hai ki kaunsi file kahan jayegi
-const uploadFields = upload.fields([
-  { name: 'doc-photo', maxCount: 1 },
+// Fields Config
+const vaultUploads = upload.fields([
   { name: 'doc-aadhar', maxCount: 1 },
   { name: 'doc-pan', maxCount: 1 },
   { name: 'doc-10th', maxCount: 1 },
   { name: 'doc-12th', maxCount: 1 },
+  { name: 'doc-photo', maxCount: 1 },
+  { name: 'doc-sign', maxCount: 1 },
   { name: 'doc-caste', maxCount: 1 },
-  { name: 'doc-income', maxCount: 1 },
-  { name: 'doc-residence', maxCount: 1 },
-  { name: 'doc-sign', maxCount: 1 }
+  { name: 'doc-income', maxCount: 1 }
 ]);
 
-router.post('/', protect, uploadFields, async (req, res) => {
+// --- API ROUTES ---
+
+// ✅ GET: Email ke zariye data lao (Unique Data)
+router.get('/:email', async (req, res) => {
   try {
-    // 1. Text Data nikalo
+    const userEmail = req.params.email; // URL se email uthao
+    const vault = await Vault.findOne({ email: userEmail });
+    
+    if (!vault) return res.status(200).json({ details: {}, documents: {} }); // Agar naya hai to khali bhejo
+    
+    res.json(vault);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: 'Server Error' });
+  }
+});
+
+// ✅ POST: Email ke hisaab se Save karo (Unique Storage)
+router.post('/', vaultUploads, async (req, res) => {
+  try {
     let details = {};
     if (req.body.details) {
       details = JSON.parse(req.body.details);
     }
 
-    // 2. Files ke Links nikalo (Agar upload hui hain to)
-    const files = req.files || {};
+    // Email check karo (Zaroori hai)
+    const userEmail = details.email;
+    if (!userEmail) {
+      return res.status(400).json({ msg: "Email is missing in details!" });
+    }
 
-    if (files['doc-photo']) details.photoUrl = files['doc-photo'][0].path;
-    if (files['doc-aadhar']) details.aadharCardUrl = files['doc-aadhar'][0].path;
-    if (files['doc-pan']) details.panCardUrl = files['doc-pan'][0].path;
-    if (files['doc-10th']) details.tenthMarkUrl = files['doc-10th'][0].path;
-    if (files['doc-12th']) details.twelfthMarkUrl = files['doc-12th'][0].path;
-    if (files['doc-caste']) details.casteCertUrl = files['doc-caste'][0].path;
-    if (files['doc-income']) details.incomeCertUrl = files['doc-income'][0].path;
-    if (files['doc-residence']) details.residenceCertUrl = files['doc-residence'][0].path;
-    if (files['doc-sign']) details.signUrl = files['doc-sign'][0].path;
+    // Database mein is Email ko dhundo
+    let vault = await Vault.findOne({ email: userEmail });
 
-    // 3. Database me Save/Update karo
-    // upsert: true ka matlab, agar data nahi hai to naya banao, hai to update karo
-    const vault = await Vault.findOneAndUpdate(
-      { user: req.user.id },
-      { $set: details },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    // Agar nahi mila, to naya banao
+    if (!vault) {
+      vault = new Vault({ email: userEmail });
+    }
 
-    res.json({ msg: 'Saved Successfully', details: vault });
+    // Text Data Update
+    vault.details = { ...vault.details, ...details };
+
+    // Files Update
+    // Hum files ka path store kar rahe hain
+    if (req.files) {
+      if (req.files['doc-aadhar']) vault.documents.aadharCard = req.files['doc-aadhar'][0].path;
+      if (req.files['doc-pan']) vault.documents.panCard = req.files['doc-pan'][0].path;
+      if (req.files['doc-10th']) vault.documents.markSheet10 = req.files['doc-10th'][0].path;
+      if (req.files['doc-12th']) vault.documents.markSheet12 = req.files['doc-12th'][0].path;
+      if (req.files['doc-photo']) vault.documents.photo = req.files['doc-photo'][0].path;
+      if (req.files['doc-sign']) vault.documents.signature = req.files['doc-sign'][0].path;
+      // Naye wale bhi
+      if (req.files['doc-caste']) vault.documents.casteCert = req.files['doc-caste'][0].path;
+      if (req.files['doc-income']) vault.documents.incomeCert = req.files['doc-income'][0].path;
+    }
+
+    await vault.save();
+    res.json({ msg: 'Saved Successfully', vault });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: 'Server Error: ' + err.message });
+    res.status(500).json({ msg: 'Server Error' });
   }
 });
 
